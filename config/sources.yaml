@@ -1,0 +1,208 @@
+# Правила нормализации URL перед вычислением dedup_hash (см. п. 8 ТЗ и Приложение Б)
+dedup:
+  strip_fragment: true
+  force_https: true
+  strip_www: true
+  strip_trailing_slash: true
+  sort_query: true
+  strip_params:
+    - utm_source
+    - utm_medium
+    - utm_campaign
+    - utm_term
+    - utm_content
+    - gclid
+    - fbclid
+    - yclid
+    - from
+    - ref
+
+sources:
+  # ── news ────────────────────────────────────────────────────────────────────
+  - id: tass_news
+    name: "ТАСС — новости"
+    label: news
+    type: rss
+    url: "https://tass.ru/rss/v2.xml"
+    enabled: true
+    fields:
+      title: "title"
+      url: "link"
+      description: "summary"
+      created_at: "published_parsed"   # feedparser уже разобрал дату в struct_time
+
+  - id: lenta_news
+    name: "Lenta.ru — новости"
+    label: news
+    type: rss
+    url: "https://lenta.ru/rss/news"
+    enabled: true
+    fields:
+      title: "title"
+      url: "link"
+      description: "summary"
+      created_at: "published_parsed"
+
+  - id: kommersant_news
+    name: "Коммерсантъ — новости"
+    label: news
+    type: rss
+    url: "https://www.kommersant.ru/RSS/news.xml"
+    enabled: true
+    fields:
+      title: "title"
+      url: "link"
+      description: "description"
+      created_at: "published_parsed"
+
+  # ── vacancies ───────────────────────────────────────────────────────────────
+  - id: trudvsem_vacancies
+    name: "Работа России — открытые данные"
+    label: vacancies
+    type: api
+    url: "https://opendata.trudvsem.ru/api/v1/vacancies"
+    enabled: true
+    params:
+      text: "python"
+      limit: 50
+    items_path: "results.vacancies"    # массив вакансий внутри ответа
+    # Открытые данные «Работы России» генерируют ответ 14–17 секунд независимо от
+    # размера страницы, поэтому таймаут источника поднят и страница одна.
+    timeout: 30
+    pagination:
+      offset_param: offset
+      max_pages: 1                     # один запрос ≈16 с; 50 записей за прогон
+    fields:
+      # В ответе API имена полей с дефисом и подчёркиванием вперемешку
+      title: "vacancy.job-name"
+      url: "vacancy.vac_url"
+      description: "vacancy.requirements"
+      created_at: "vacancy.creation-date"
+    extra_fields:                      # значения для жёстких фильтров (этап 2) и для показа
+      salary_min: "vacancy.salary_min"
+      salary_max: "vacancy.salary_max"
+      salary_currency: "vacancy.currency"
+      region: "vacancy.region.name"
+      company: "vacancy.company.name"
+    item_filters:
+      salary_min: 80000                 # от
+      salary_max: 350000                # до
+      salary_currency: "RUR"            # currency приходит как «руб.» — нормализуется в normalize
+      include_unspecified_salary: true  # вакансии без указанной зарплаты тоже показываем
+
+  - id: habr_career
+    name: "Хабр Карьера — вакансии"
+    label: vacancies
+    type: rss
+    url: "https://career.habr.com/vacancies/rss?q=python"
+    enabled: true
+    fields:
+      title: "title"
+      url: "link"
+      description: "description"
+      created_at: "published_parsed"
+
+  # ── tech ────────────────────────────────────────────────────────────────────
+  - id: habr
+    name: "Хабр — все потоки"
+    label: tech
+    type: rss
+    url: "https://habr.com/ru/rss/all/all/?fl=ru"
+    enabled: true
+    fields:
+      title: "title"
+      url: "link"
+      description: "summary"
+      created_at: "published_parsed"
+
+  - id: github_trending
+    name: "GitHub — новые репозитории"
+    label: tech
+    type: github
+    url: "https://api.github.com/search/repositories"
+    enabled: true
+    headers:
+      Accept: "application/vnd.github+json"
+      # Authorization подставляется из GITHUB_TOKEN, если он задан
+    params:
+      q: "language:python created:>{since}"   # {since} — дата ISO: сегодня − lookback_days запроса
+      sort: "stars"
+      order: "desc"
+      per_page: 30
+    items_path: "items"
+    fields:
+      title: "full_name"
+      url: "html_url"
+      description: "description"
+      created_at: "created_at"
+
+  - id: hackernews
+    name: "Hacker News — свежие истории"
+    label: tech
+    type: api
+    # Algolia-поиск вместо topstories: одна выборка вместо N+1 запросов к item/{id}
+    url: "https://hn.algolia.com/api/v1/search_by_date"
+    enabled: true
+    # Источник англоязычный: заголовок и описание переводятся при сборе, в базе
+    # материал уже на русском (оригинал остаётся в extra). Нет DEEPSEEK_API_KEY —
+    # перевод молча выключен, материал сохраняется как есть.
+    translation: eng
+    params:
+      tags: "story"
+      hitsPerPage: 30
+    items_path: "hits"
+    fields:
+      title: "title"
+      url: "url"
+      description: "story_text"
+      created_at: "created_at"
+
+  # ── competitors ─────────────────────────────────────────────────────────────
+  - id: vcru
+    name: "VC.ru — публикации"
+    label: competitors
+    type: rss
+    url: "https://vc.ru/rss/all"
+    enabled: true
+    fields:
+      title: "title"
+      url: "link"
+      description: "summary"
+      created_at: "published_parsed"
+
+  # ── выключенные заготовки ───────────────────────────────────────────────────
+  - id: devto
+    name: "Dev.to — статьи"
+    label: tech
+    type: api
+    url: "https://dev.to/api/articles"
+    enabled: false
+    params:
+      per_page: 30
+    fields:
+      title: "title"
+      url: "url"
+      description: "description"
+      created_at: "published_at"
+
+  - id: arbeitnow
+    name: "Arbeitnow — вакансии (ЕС)"
+    label: vacancies
+    type: api
+    url: "https://www.arbeitnow.com/api/job-board-api"
+    enabled: false
+    items_path: "data"
+    fields:
+      title: "title"
+      url: "url"
+      description: "description"
+      created_at: "created_at"
+
+  # HeadHunter исключён из проекта: с апреля 2026 публичный GET /vacancies отдаёт
+  # 403 Forbidden для неавторизованных запросов, ключ выдают работодателям и
+  # рекрутинговым сервисам после модерации приложения (подробнее — п. 5 ТЗ).
+  # Блок оставлен как справка и не включается.
+  # - id: hh_vacancies
+  #   type: api
+  #   url: "https://api.hh.ru/vacancies"
+  #   enabled: false

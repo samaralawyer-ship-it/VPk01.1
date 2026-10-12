@@ -1,0 +1,19 @@
+services:
+  aggregator:
+    build: .
+    container_name: news-vacancy-aggregator
+    env_file:
+      - .env
+    environment:
+      TZ: Europe/Moscow
+      DB_PATH: data/aggregator.db
+      LOG_FILE: logs/collector.log
+      # Если Telegram Bot API недоступен из сети хоста, раскомментируйте прокси.
+      # Для прокси на самом хосте добавьте extra_hosts ниже и укажите host.docker.internal.
+      # TG_PROXY: socks5://host.docker.internal:1080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped

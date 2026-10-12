@@ -1,0 +1,25 @@
+# Секреты — никогда не коммитить
+.env
+Подключение.txt
+
+# Временные и рабочие файлы
+resume.md
+Описание.md
+Промпт.md
+Промпт.v1.0.md
+Промпт.v1.0-v1.1.diff
+
+# Данные и логи
+data/
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.work/
+.pytest-tmp/
+.idea/
+.vscode/

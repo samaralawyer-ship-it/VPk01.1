@@ -1,0 +1,58 @@
+# Один прогон pipeline при старте процесса: собрать с настроенной глубиной и отправить
+# дайджест, дальше работа идёт по cron. Сервис не рассчитан быть постоянным резидентом:
+# остановили и запустили снова — снова смотрим на ту же глубину, дублей не будет.
+run_on_start: true
+
+# Значения по умолчанию для всех запросов; каждый запрос может их переопределить
+defaults:
+  limit: 10                 # сколько материалов максимум попадает в раздел
+  lookback_days: 10         # глубина проверки: за сколько дней смотрим материалы
+  summarize: false          # саммари через DeepSeek; вызов платный
+  notify_empty: true        # «может не находить, но не может молчать»: пустой раздел
+                            # приходит сообщением с объяснением, а не тишиной
+
+queries:
+  - id: daily_news
+    label: news
+    sources: []                 # пусто = все включённые источники с этой меткой
+    keywords:
+      any:
+        - "нейросет"                    # основа: любые словоформы
+        - ["машинн", "обучени"]         # фраза из двух слов
+        - "ИИ"                          # короткий — по границам слова
+      exclude: ["промокод", "скидк", "гороскоп"]
+      fields: [title, description]
+    schedule: "0 9 * * *"       # cron: ежедневно в 9:00 (таймзона Europe/Moscow)
+    limit: 10
+    summarize: true
+    tg_chat_id: "${TG_CHAT_ID}"
+
+  - id: daily_vacancies
+    label: vacancies
+    sources: [trudvsem_vacancies, habr_career]
+    filters:
+      salary_min: 80000             # от
+      salary_max: 350000            # до
+      salary_currency: "RUR"
+      include_unspecified_salary: true
+    keywords:
+      # Один ключ «any» со списком: повторы ключа YAML молча затирают друг друга,
+      # и работал бы только последний. Загрузчик теперь такую ошибку отклоняет.
+      any: ["промпт", "prompt", "python", "питон"]
+      exclude: ["1С", "стажёр", "стажер"]
+    schedule: "0 10 * * *"
+    lookback_days: 3
+    tg_chat_id: "${TG_CHAT_ID}"
+
+  - id: daily_tech
+    label: tech
+    sources: []
+    schedule: "0 10 * * *"
+    tg_chat_id: "${TG_CHAT_ID}"
+
+  - id: weekly_competitors
+    label: competitors
+    sources: []
+    schedule: "0 11 * * 1"      # по понедельникам
+    lookback_days: 7            # недельный раздел — и окно шире
+    tg_chat_id: "${TG_CHAT_ID}"
