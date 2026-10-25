@@ -13,6 +13,9 @@ resume.md
 data/
 logs/
 
+# Учебные материалы и демо-примеры для занятий
+learning/
+
 # Python
 __pycache__/
 *.py[cod]
