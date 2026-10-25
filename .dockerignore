@@ -2,6 +2,12 @@
 Подключение.txt
 data/
 logs/
+
+# Не тащить в образ: скриншоты, сохранённые страницы уроков, учебные материалы
+*.docx
+*.html
+*_files/
+learning/
 .work/
 .pytest-tmp/
 .pytest_cache/

@@ -2,18 +2,32 @@ services:
   aggregator:
     build: .
     container_name: news-vacancy-aggregator
-    env_file:
-      - .env
+    # Переменные подставляются из окружения (Coolify) или из .env рядом с этим файлом.
+    # Две обязательные падают с понятной ошибкой, а не стартуют сервис без бота.
     environment:
-      TZ: Europe/Moscow
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?задайте TELEGRAM_BOT_TOKEN}
+      TG_CHAT_ID: ${TG_CHAT_ID:?задайте TG_CHAT_ID}
+      TG_ALLOWED_CHAT_IDS: ${TG_ALLOWED_CHAT_IDS:-}
+      # Прокси для Telegram: нужен только если api.telegram.org недоступен из сети сервера.
+      TG_PROXY: ${TG_PROXY:-}
+      DRY_RUN: ${DRY_RUN:-false}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Опционально: перевод иностранных источников и саммари дайджеста.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      TRANSLATE_TO: ${TRANSLATE_TO:-rus}
+      TZ: ${TZ:-Europe/Moscow}
       DB_PATH: data/aggregator.db
       LOG_FILE: logs/collector.log
-      # Если Telegram Bot API недоступен из сети хоста, раскомментируйте прокси.
-      # Для прокси на самом хосте добавьте extra_hosts ниже и укажите host.docker.internal.
-      # TG_PROXY: socks5://host.docker.internal:1080
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      # Именованные volume: данные переживают пересборку и не зависят от папки деплоя.
+      - aggregator-data:/app/data
+      - aggregator-logs:/app/logs
     restart: unless-stopped
+    # Дать боту и планировщику закрыться по SIGTERM, а не получить SIGKILL через 10 с.
+    stop_grace_period: 30s
+
+volumes:
+  aggregator-data:
+  aggregator-logs:

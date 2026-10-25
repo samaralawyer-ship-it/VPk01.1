@@ -429,7 +429,7 @@ main.py       точка входа и сервисный режим
 tests/        440 юнит-тестов + живые сценарии
 ```
 
-## Docker (не собирали)
+## Docker
 
 ```bash
 cp .env.example .env      # заполнить значения
@@ -437,7 +437,132 @@ docker compose up -d
 docker compose logs -f
 ```
 
-`restart: unless-stopped`, база и логи на volume (`./data`, `./logs`).
+`restart: unless-stopped`, переменные подставляются из `.env` рядом с `docker-compose.yml`.
+База и логи лежат в именованных volume `aggregator-data` и `aggregator-logs`, поэтому
+пересборка контейнера их не задевает. Достать базу из volume:
+
+```bash
+docker cp news-vacancy-aggregator:/app/data/aggregator.db ./
+```
+
+## Деплой на VPS (Coolify)
+
+Схема проверена на Ubuntu 24 (2 vCPU, 4 ГБ RAM, дата-центр в США) с Coolify 4.
+Сервис headless: входящий HTTP-порт не слушает, поэтому домен, SSL и обратный прокси
+не нужны.
+
+### Что нужно
+
+- VPS с Ubuntu 24 и публичным IP, root-доступ по SSH-ключу;
+- репозиторий на GitHub с этим кодом;
+- токен бота и ваш `chat_id`.
+
+### Переменные окружения
+
+Задаются в панели Coolify (`Environment Variables`); файл `.env` на сервере не нужен.
+
+| Переменная | Обязательна | Значение |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | да | токен от @BotFather |
+| `TG_CHAT_ID` | да | ваш chat_id |
+| `GITHUB_TOKEN` | нет | поднимает лимит GitHub API (10 → 30 req/min) |
+| `DEEPSEEK_API_KEY` | нет | включает перевод и саммари |
+| `DEEPSEEK_MODEL` | нет | по умолчанию `deepseek-flash` |
+| `TRANSLATE_TO` | нет | `rus` / `eng` |
+| `TZ` | нет | `Europe/Moscow` — от него зависит cron |
+| `LOG_LEVEL` | нет | `INFO` |
+| `DRY_RUN` | нет | `false` |
+| `TG_PROXY` | нет | только если Telegram недоступен из сети сервера |
+
+### Установка на сервере
+
+```bash
+apt update && apt upgrade -y
+apt install -y curl ufw git tmux
+timedatectl set-timezone Europe/Moscow
+ufw allow 22/tcp                      # до enable, иначе можно потерять SSH
+ufw --force enable
+curl -fsSL https://get.docker.com | sh
+curl -fsSL https://coolify.io/install.sh | bash
+```
+
+Панель Coolify слушает порт `8000`. Публиковать его в интернет не нужно: `ufw` **не
+фильтрует** порты, опубликованные Docker (DNAT идёт в цепочке `DOCKER` мимо правил
+ufw), поэтому «закрыть через ufw» здесь не работает. Панель привязывается к loopback:
+
+```bash
+sed -i 's/8000:8000/127.0.0.1:8000:8000/' /data/coolify/source/docker-compose.yml
+cd /data/coolify/source && docker compose up -d
+```
+
+и открывается через SSH-туннель:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 -L 8000:127.0.0.1:8000 -N root@<IP_сервера>
+# затем http://localhost:8000
+```
+
+Правку привязки нужно повторять после самообновления Coolify — он перегенерирует
+`docker-compose.yml`. Проверка, что порт не торчит наружу (снаружи должен быть `000`):
+
+```bash
+curl -m 5 -o /dev/null -w '%{http_code}\n' http://<IP_сервера>:8000
+```
+
+Обратный прокси Coolify (`coolify-proxy`, Traefik на 80/443) проекту не нужен, его
+можно остановить: `docker stop coolify-proxy && docker update --restart=no coolify-proxy`.
+
+### Деплой
+
+1. Coolify → `Keys & Tokens` → `Private Keys` → Add (RSA) → скопировать публичную часть.
+2. GitHub → `Settings` → `Deploy keys` → Add deploy key → вставить ключ → `Allow write access`.
+3. Coolify → New Project → Add → **Docker Compose**, ветка `main`, файл `/docker-compose.yml`.
+4. Заполнить переменные из таблицы → **Deploy**.
+5. В логах деплоя должны появиться `pipeline | [...] fetched=… new=… dup=…` и старт бота.
+
+### Проверка
+
+```bash
+docker ps                                   # контейнер Up
+docker logs -f news-vacancy-aggregator      # живой лог
+```
+
+В Telegram: `/start`, `/status` (время запуска и ближайшие cron-срабатывания — сдвиг
+означал бы неверный `TZ`), `/digest news`.
+
+### Резервное копирование и восстановление
+
+```bash
+# бэкап
+docker cp news-vacancy-aggregator:/app/data/aggregator.db /root/backup-$(date +%F).db
+
+# восстановление
+docker cp /root/backup-2026-10-25.db news-vacancy-aggregator:/app/data/aggregator.db
+docker compose restart
+```
+
+После восстановления `/status` должен показать прежний размер базы.
+
+### Автодеплой
+
+GitHub → `Settings` → `Webhooks` → Add webhook: URL и Secret берутся в Coolify на вкладке
+`Webhooks` приложения, content type `application/json`, событие `Just the push event`.
+Проверка: `git push` в `main` → в Coolify появляется новый deployment → бот перезапускается
+с новым кодом. Пересборка занимает 30–60 секунд, бот в это время не отвечает; сообщения
+не теряются — long polling дочитает их после старта.
+
+### Сеть: что проверяли на этой схеме
+
+С US-адреса доступны и `api.telegram.org`, и российские источники (`tass.ru`, `lenta.ru`,
+`kommersant.ru`, `vc.ru`, `habr.com`, `trudvsem.ru`), поэтому `TG_PROXY` и отключение
+источников не понадобились. Повторить проверку при смене дата-центра:
+
+```bash
+for u in https://api.telegram.org https://tass.ru/rss/v2.xml https://lenta.ru/rss/news \
+         https://www.kommersant.ru/RSS/news.xml https://vc.ru/rss/all ; do
+  printf '%-50s %s\n' "$u" "$(curl -sS -m 25 -o /dev/null -w '%{http_code}' "$u" 2>&1)"
+done
+```
 
 ## Особенности и ограничения
 
@@ -445,7 +570,8 @@ docker compose logs -f
   не устанавливается. Варианты: VPN, переменная `TG_PROXY` (`socks5://` или `http://`),
   либо запуск на внешнем сервере через docker-compose. `TG_PROXY` применяется и к отправке
   дайджестов (`bot/sender.py`), и к поллингу бота (`bot/telegram_bot.py`): иначе доставка
-  работала бы, а бот падал при старте.
+  работала бы, а бот падал при старте. На VPS в США доставка проверена: `api.telegram.org`
+  отвечает, `TG_PROXY` не нужен (см. раздел «Деплой на VPS»).
 - **HeadHunter больше не источник**: публичный поиск вакансий закрыт, см. выше.
 - **Медленные API**: открытые данные «Работы России» генерируют ответ 14–17 секунд независимо
   от размера страницы, поэтому у источника свой `timeout: 30` и одна страница за прогон.
