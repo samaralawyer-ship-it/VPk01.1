@@ -447,9 +447,9 @@ docker cp news-vacancy-aggregator:/app/data/aggregator.db ./
 
 ## Деплой на VPS (Coolify)
 
-Схема проверена на Ubuntu 24 (2 vCPU, 4 ГБ RAM, дата-центр в США) с Coolify 4.
-Сервис headless: входящий HTTP-порт не слушает, поэтому домен, SSL и обратный прокси
-не нужны.
+Схема проверена на Ubuntu 24.04 (2 vCPU, 4 ГБ RAM, 58 ГБ NVMe, дата-центр в Амстердаме)
+с Coolify 4.5. Сервис headless: входящий HTTP-порт не слушает, поэтому домен, SSL и
+обратный прокси не нужны.
 
 ### Что нужно
 
@@ -483,7 +483,7 @@ timedatectl set-timezone Europe/Moscow
 ufw allow 22/tcp                      # до enable, иначе можно потерять SSH
 ufw --force enable
 curl -fsSL https://get.docker.com | sh
-curl -fsSL https://coolify.io/install.sh | bash
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
 ```
 
 Панель Coolify слушает порт `8000`. Публиковать его в интернет не нужно: `ufw` **не
@@ -522,9 +522,20 @@ curl -m 5 -o /dev/null -w '%{http_code}\n' http://<IP_сервера>:8000
 
 ### Проверка
 
+**Важно: в Coolify контейнер называется иначе.** Coolify игнорирует `container_name` из
+`docker-compose.yml` и назначает своё имя вида `aggregator-<uuid>-<timestamp>`. Поэтому
+имя надо получать командой:
+
 ```bash
-docker ps                                   # контейнер Up
-docker logs -f news-vacancy-aggregator      # живой лог
+CID=$(docker ps --filter 'name=aggregator' --format '{{.Names}}' | head -1)
+echo "$CID"
+```
+
+Локально (`docker compose up -d`) работает обычное имя `news-vacancy-aggregator`.
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Status}}'   # контейнер Up
+docker logs -f "$CID"                                 # живой лог
 ```
 
 В Telegram: `/start`, `/status` (время запуска и ближайшие cron-срабатывания — сдвиг
@@ -532,13 +543,19 @@ docker logs -f news-vacancy-aggregator      # живой лог
 
 ### Резервное копирование и восстановление
 
+Выполняется на сервере по SSH (в контейнере приложения Docker CLI нет).
+
 ```bash
+# имя контейнера
+CID=$(docker ps --filter 'name=aggregator' --format '{{.Names}}' | head -1)
+
 # бэкап
-docker cp news-vacancy-aggregator:/app/data/aggregator.db /root/backup-$(date +%F).db
+docker cp "$CID":/app/data/aggregator.db /root/backup-$(date +%F).db
+ls -lh /root/backup-*.db
 
 # восстановление
-docker cp /root/backup-2026-10-25.db news-vacancy-aggregator:/app/data/aggregator.db
-docker compose restart
+docker cp /root/backup-2026-10-28.db "$CID":/app/data/aggregator.db
+docker restart "$CID"
 ```
 
 После восстановления `/status` должен показать прежний размер базы.
@@ -570,8 +587,8 @@ done
   не устанавливается. Варианты: VPN, переменная `TG_PROXY` (`socks5://` или `http://`),
   либо запуск на внешнем сервере через docker-compose. `TG_PROXY` применяется и к отправке
   дайджестов (`bot/sender.py`), и к поллингу бота (`bot/telegram_bot.py`): иначе доставка
-  работала бы, а бот падал при старте. На VPS в США доставка проверена: `api.telegram.org`
-  отвечает, `TG_PROXY` не нужен (см. раздел «Деплой на VPS»).
+  работала бы, а бот падал при старте. На европейском VPS (Амстердам) доставка проверена:
+  `api.telegram.org` отвечает кодом `302`, `TG_PROXY` не нужен (см. раздел «Деплой на VPS»).
 - **HeadHunter больше не источник**: публичный поиск вакансий закрыт, см. выше.
 - **Медленные API**: открытые данные «Работы России» генерируют ответ 14–17 секунд независимо
   от размера страницы, поэтому у источника свой `timeout: 30` и одна страница за прогон.
